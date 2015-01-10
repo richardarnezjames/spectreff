@@ -28,7 +28,7 @@ from fcntl import ioctl
 #import v4l2 as v
 import os
 from time import time, sleep
-import weakref
+# import weakref
 import numpy as n
 
 class Delta_t(object):
@@ -436,6 +436,10 @@ def ycbcr2rgb2(data):
 def mirror(data):
     return(data)
 
+
+import array as ba
+import numpy as np
+
 def unpack_images(raw_packets):
     
     # Getting smaller internal packets
@@ -577,51 +581,104 @@ def unpack_images(raw_packets):
         #print "Row", row[:3], [hex(ord(i)) for i in row[3]], len(row[3])
         pass
 
-    print "yuv conversion"
+    print "yuv conversion or lack thereof"
     #YUV!
     images3=[]
     image3=[]
+    import time
+    blerg = 0
+
+    start = time.clock()
+    for img in images2a:
+        image3 = []
+        for n_row, row in enumerate(img):
+            r = np.fromstring(row[3], dtype='uint8') # slower than array
+            yuyv = r.reshape((len(r) / 4, 4))
+            together = np.vstack((yuyv[:,0], yuyv[:,1], yuyv[:,3], yuyv[:,2], yuyv[:,1], yuyv[:,3]))
+            image3.append((0, 0, 0, ba.array('B', together.T.flatten()).tostring()))
+        images3.append(image3)
+    print "total conversion", time.clock() - start # 1.073279
+    
+
+
+    # start = time.clock()
+    # for img in images2a:
+    #     image3 = []
+    #     for n_row, row in enumerate(img):
+    #         r = ba.array('B')
+    #         r.fromstring(row[3])
+    #         new_row = []
+
+    #         # 4:2:2 chroma subsampling
+    #         for i in xrange(len(row[3])/4):
+    #             y1 = r[i * 4]
+    #             u = r[i * 4 + 1]
+    #             y2 = r[i * 4 + 2]
+    #             v = r[i * 4 + 3]
+
+    #             new_row += [y1, u, v, y2, u, v]
+    #             blerg += 1
+
+    #         image3.append((0, 0, 0, ba.array('B', new_row).tostring()))
+
+    #     images3.append(image3)
+    # print "total conversion", time.clock() - start # 0.816999
 
     # for img in images2a:
     #     image3 = []
     #     for n_row, row in enumerate(img):
-    #         new_row = []
+    #         r = ba.array('B')
+    #         r.fromstring(row[3])
+    #         new_row = np.zeros(len(row[3])/4*6, dtype='i')
+
     #         # 4:2:2 chroma subsampling
+    #         for i in xrange(len(row[3])/4):
+    #             y1 = r[i * 4]
+    #             u = r[i * 4 + 1]
+    #             y2 = r[i * 4 + 2]
+    #             v = r[i * 4 + 3]
+
+    #             new_row[i * 6] = y1
+    #             new_row[i * 6 + 1] = u
+    #             new_row[i * 6 + 2] = v
+    #             new_row[i * 6 + 3] = y2
+    #             new_row[i * 6 + 4] = u
+    #             new_row[i * 6 + 5] = v
+
+    #             # new_row += [y1, u, v, y2, u, v]
+
+    #         image3.append((0, 0, 0, ba.array('B', new_row).tostring()))
+
+    #     images3.append(image3)
+            
+
+
+    # for img in images2a:
+    #     image3=[]
+    #     for n_row, row in enumerate(img):
+    #         new_row=''
     #         for i in xrange(len(row[3])/4):
     #             y1=row[3][i*4]
     #             u=row[3][i*4+1]
     #             y2=row[3][i*4+2]
     #             v=row[3][i*4+3]
-    #             new_row += [y1, u, v, y2, u, v]
-            
-
-
-    for img in images2a:
-        image3=[]
-        for n_row, row in enumerate(img):
-            new_row=''
-            for i in xrange(len(row[3])/4):
-                y1=row[3][i*4]
-                u=row[3][i*4+1]
-                y2=row[3][i*4+2]
-                v=row[3][i*4+3]
-                yuv1=(y1,u,v)
-                yuv2=(y2,u,v)
-                rgb1=ycbcr2rgb2(yuv1)
-                rgb2=ycbcr2rgb2(yuv2)                #rgb1=mirror(yuv1)
-                #rgb2=mirror(yuv2)
-                new_row+=reduce(lambda x,y: x+y, rgb1)+reduce(lambda x,y: x+y, rgb2)
-                if (n_row==80/2 and i==80/2) or (n_row==150/2 and i==300/2) or (n_row==470/2 and i==150/2):
-                    pass
-                    #azul 11 20 71, verde 43 155 55, negro 9 9 9 
-                    #print "N rows" , len(img), "len(row[3])/4", len(row[3])/4
-                    #print "Old:" , [hex(ord(k)) for k in row[3][i*4:i*4+4]], [hex(ord(k)) for k in y1+u+y2+v]
-                    #print "New row", [hex(ord(k)) for k in reduce(lambda x,y: x+y, rgb1)+reduce(lambda x,y: x+y, rgb2)]
-                    #raw_input()
-                #raw_input()
-            image3.append((0, 0, 0, new_row))
-        images3.append(image3)
-    print "erasing dots"
+    #             yuv1=(y1,u,v)
+    #             yuv2=(y2,u,v)
+    #             rgb1=ycbcr2rgb2(yuv1)
+    #             rgb2=ycbcr2rgb2(yuv2)                #rgb1=mirror(yuv1)
+    #             #rgb2=mirror(yuv2)
+    #             new_row+=reduce(lambda x,y: x+y, rgb1)+reduce(lambda x,y: x+y, rgb2)
+    #             if (n_row==80/2 and i==80/2) or (n_row==150/2 and i==300/2) or (n_row==470/2 and i==150/2):
+    #                 pass
+    #                 #azul 11 20 71, verde 43 155 55, negro 9 9 9 
+    #                 #print "N rows" , len(img), "len(row[3])/4", len(row[3])/4
+    #                 #print "Old:" , [hex(ord(k)) for k in row[3][i*4:i*4+4]], [hex(ord(k)) for k in y1+u+y2+v]
+    #                 #print "New row", [hex(ord(k)) for k in reduce(lambda x,y: x+y, rgb1)+reduce(lambda x,y: x+y, rgb2)]
+    #                 #raw_input()
+    #             #raw_input()
+    #         image3.append((0, 0, 0, new_row))
+    #     images3.append(image3)
+    # print "erasing dots"
     # Erasing even dots in images
     #raw_input()
     # new_images=[]
@@ -667,38 +724,38 @@ from fcntl import ioctl
 import os
 from time import time, sleep
 
-def send_loopback(images):
+# def send_loopback(images):
     
-    d=os.open("/dev/video1", os.O_RDWR)
-    cap=v.v4l2_capability()
-    ioctl(d, v.VIDIOC_QUERYCAP, cap)
-    vid_format=v.v4l2_format()
-    #ioctl(d, v.VIDIOC_G_FMT, vid_format)
-    vid_format.type=v.V4L2_BUF_TYPE_VIDEO_OUTPUT
-    vid_format.fmt.pix.width=640
-    #vid_format.fmt.pix.sizeimage=1036800
-    vid_format.fmt.pix.height=480
-    vid_format.fmt.pix.pixelformat=v.V4L2_PIX_FMT_RGB24
-    vid_format.fmt.pix.field=v.V4L2_FIELD_NONE
-    vid_format.fmt.pix.colorspace=v.V4L2_COLORSPACE_SRGB
-    ioctl(d, v.VIDIOC_S_FMT, vid_format)
-    print "frame size", vid_format.fmt.pix.sizeimage, len(images[0][0]), images[0][1]
-    raw_input()
-    counter=0
-    old_t=time()
-    fps_period=1./29.97
-    while True:
-        counter+=1
-        #print "Image", counter
-        for img, size in images:
-            t=time()
-            delta_time=t-old_t
-            print "Delta", delta_time,
-            old_t=t
-            if delta_time<fps_period:
-                print "sleeping a bit"
-                sleep(fps_period-delta_time)
-            os.write(d, img)
+#     d=os.open("/dev/video1", os.O_RDWR)
+#     cap=v.v4l2_capability()
+#     ioctl(d, v.VIDIOC_QUERYCAP, cap)
+#     vid_format=v.v4l2_format()
+#     #ioctl(d, v.VIDIOC_G_FMT, vid_format)
+#     vid_format.type=v.V4L2_BUF_TYPE_VIDEO_OUTPUT
+#     vid_format.fmt.pix.width=640
+#     #vid_format.fmt.pix.sizeimage=1036800
+#     vid_format.fmt.pix.height=480
+#     vid_format.fmt.pix.pixelformat=v.V4L2_PIX_FMT_RGB24
+#     vid_format.fmt.pix.field=v.V4L2_FIELD_NONE
+#     vid_format.fmt.pix.colorspace=v.V4L2_COLORSPACE_SRGB
+#     ioctl(d, v.VIDIOC_S_FMT, vid_format)
+#     print "frame size", vid_format.fmt.pix.sizeimage, len(images[0][0]), images[0][1]
+#     raw_input()
+#     counter=0
+#     old_t=time()
+#     fps_period=1./29.97
+#     while True:
+#         counter+=1
+#         #print "Image", counter
+#         for img, size in images:
+#             t=time()
+#             delta_time=t-old_t
+#             print "Delta", delta_time,
+#             old_t=t
+#             if delta_time<fps_period:
+#                 print "sleeping a bit"
+#                 sleep(fps_period-delta_time)
+#             os.write(d, img)
 
 from PIL import Image
 import struct
@@ -729,7 +786,7 @@ def main():
     print "visualizing"
     for i, size in vis_images_final:
         print "wumbology", size
-        im=Image.frombuffer("RGB", (size[0]/3, size[1]), i)
+        im=Image.frombuffer("YCbCr", (size[0]/3, size[1]), i)
         im.show()
         #base = Image.blend(base, im, 0.5)
     
