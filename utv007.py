@@ -30,6 +30,7 @@ import os
 from time import time, sleep
 # import weakref
 import numpy as n
+import pygame
 
 class Delta_t(object):
     def __init__(self):
@@ -183,12 +184,15 @@ class Utv007(object):
         self.start_frame=True
         self.n_packets=0
         #self.v4l_init()
+        self.old_t=time()
         self.stop=False
         self.iso=[]
         self.dt=Delta_t()
         #self.test=' '*960
         #self.iso=self.devh.getTransfer(iso_packets=8)
         #self.iso.setIsochronous(0x81, 0x6000, callback=self.callback2, timeout=1000)
+        self.failbuf = []
+        self.failstuff = []
         print "Initialization completed"
         #print "Reading int"
     #a=devh.interruptRead(4,0, timeout=1000)
@@ -223,7 +227,7 @@ class Utv007(object):
     def do_iso2(self):
         #print "Submitting another iso"
         iso=self.devh.getTransfer(iso_packets=8)
-        iso.setIsochronous(0x81, 0x6000, callback=self.callback2, timeout=1000)
+        iso.setIsochronous(0x81, buffer_or_len=0x6000, callback=self.callback2)
         iso.submit()
         self.iso.append(iso)
         #self.iso.setCallback(callback1)
@@ -262,6 +266,7 @@ class Utv007(object):
 """
         packets=[self.buffer_list[i][:int(self.setup_list[i]['actual_length'])] for i in xrange(len(self.buffer_list))]
         #print "n packets", len(packets)
+        
         for packet in packets:
             #print [hex(ord(i)) for i in packet[:4]]
             #print [hex(ord(i)) for i in packet[len(packet)/3:len(packet)/3+4]]
@@ -269,48 +274,67 @@ class Utv007(object):
             #if [hex(ord(i)) for i in packet[:4]]==['0x0', '0x0', '0x0', '0x0'] or [hex(ord(i)) for i in packet[len(packet)/3:len(packet)/3+4]]==['0x0', '0x0', '0x0', '0x0'] or [hex(ord(i)) for i in packet[2*len(packet)/3:2*len(packet)/3+4]]==['0x0', '0x0', '0x0', '0x0']:
                 #print "special packet"
             #    pass
-            if len(packet)!=0:
-                #self.dt.update_t()
-                for s_packet in [packet[:len(packet)/3], packet[len(packet)/3:2*len(packet)/3], packet[2*len(packet)/3:len(packet)]]:
-                    if ord(s_packet[0])==0x88:
-                        n_img=ord(s_packet[1])
-                        n_s_packet=((ord(s_packet[2]) & 0x0f)<< 8) | (ord(s_packet[3]))
-                        n_toggle=(((ord(s_packet[2]) & 0xf0) >> 7) == 0)
-                        print "Correct packet, adding", "fr", n_img, "line", n_s_packet, "interlace", n_toggle
-                        #print "packet info", n_img, n_toggle, n_s_packet, self.n_packets
-                        self.n_packets+=1
-                        if self.expected_toggle==n_toggle and self.expected_n_s_packet==n_s_packet:
-                            #print "Expected"
-                            #print "packet info", "Image number:", n_img, "Toggle:",  n_toggle, "Pack Number:", n_s_packet, "Total packs:", self.n_packets
-                            if self.start_frame:
-                                self.start_frame=False
-                                self.expected_n_img=n_img
-                            #self.dt.update_t()
-                            self.s_packets+=s_packet[4:1024-60]
-                            #self.s_packets.join(s_packet[4:1024-60])
-                            #self.dt.diff_t()
-                            #self.s_packets+=self.test
-                            self.expected_n_img+=1
-                            self.expected_n_s_packet+=1
-                            if self.expected_n_s_packet==360:
-                                self.expected_n_s_packet=0
-                                self.expected_toggle=not self.expected_toggle
-                                print "n packets", self.n_packets, len(self.s_packets)
-                                if self.n_packets>360:
-                                    print "N Packets", self.n_packets, " losing:" , (self.n_packets/360.)-1., " images"
-                                self.n_packets=0
-                                if self.expected_toggle==False:
-                                    if len(self.s_packets)==720*2*480:
-                                        print "Image complete!"
-                                        self.send_v4l()
-                                        #raw_input()
-                                    self.s_packets=''
-                        else:
-                            #print "Not expected"
-                            self.expected_n_s_packet=0
+            if len(packet) == 0:
+                continue
+            #self.dt.update_t()
+            for s_packet in [packet[:len(packet)/3], packet[len(packet)/3:2*len(packet)/3], packet[2*len(packet)/3:len(packet)]]:
+                if ord(s_packet[0]) != 0x88:
+                    continue
+                n_img=ord(s_packet[1])
+                n_s_packet=((ord(s_packet[2]) & 0x0f)<< 8) | (ord(s_packet[3]))
+                n_toggle=(((ord(s_packet[2]) & 0xf0) >> 7) == 0)
+                # print "packet", "fr", n_img, "line", n_s_packet, "interlace", n_toggle
+                self.failbuf.append((n_img, n_toggle, n_s_packet))
+                #print "packet info", n_img, n_toggle, n_s_packet, self.n_packets
+                self.n_packets+=1
+                if self.expected_toggle==n_toggle and self.expected_n_s_packet==n_s_packet:
+                    #print "Expected"
+                    #print "packet info", "Image number:", n_img, "Toggle:",  n_toggle, "Pack Number:", n_s_packet, "Total packs:", self.n_packets
+                    
+                    if self.start_frame:
+                        self.start_frame=False
+                        self.expected_n_img=n_img
+                    #self.dt.update_t()
+                    self.s_packets+=s_packet[4:1024-60]
+                    #self.s_packets.join(s_packet[4:1024-60])
+                    #self.dt.diff_t()
+                    #self.s_packets+=self.test
+                    # self.expected_n_img+=1
+                    self.expected_n_s_packet+=1
+                    if self.expected_n_s_packet==360:
+                        self.expected_n_s_packet=0
+                        self.expected_toggle=not self.expected_toggle
+                        
+                        # print "n Packets", self.n_packets, " losing:" , (self.n_packets/360.)-1., " images"
+                        self.n_packets=0
+
+                        if self.expected_toggle==False:
+                            
+                            if len(self.s_packets)==720*2*480:
+                                # print "n packets", self.n_packets, len(self.s_packets)
+                                
+                                # print self.failstuff
+                                self.failstuff = []
+                                self.failbuf = []
+                                print "Image complete!", (n_img, n_toggle, n_s_packet)
+                                self.display_frame()
+                                # self.send_v4l()
+                                #raw_input()
                             self.s_packets=''
-                #self.dt.diff_t()
-            #print [hex(ord(i)) for i in packet]
+                            # self.start_frame=True
+                else:
+                    # print "Not expected"
+                    if len(self.failbuf) > 0:
+                        # print failbuf
+                        self.failstuff.append(self.failbuf)
+                        self.failbuf = []
+
+                    self.expected_toggle = True
+                    self.expected_n_s_packet=0
+                    self.s_packets=''
+        #self.dt.diff_t()
+        #print [hex(ord(i)) for i in packet]
+
 
     def callback2(self, transfer):
         #print "Callback"
@@ -325,9 +349,10 @@ class Utv007(object):
             transfer.submit()
         else:
             print "Sending no more submits"
-        #self.do_iso2()
+        # self.do_iso2()
 
     def callback1(self, transfer):
+        # self.do_iso()
         self.buffer=transfer.getBuffer()
         print " Call back"
         print " user data" ,transfer.getUserData()
@@ -349,6 +374,8 @@ class Utv007(object):
         for i in xrange(len(self.buffer_list)):
             self.image.append(self.buffer_list[i][:int(self.setup_list[i]['length'])])
         #exit()
+
+        
 
     def v4l_init(self):
         self.d=os.open(self.v4l_device, os.O_RDWR)
@@ -378,6 +405,39 @@ class Utv007(object):
             out+=self.s_packets[(i+480/2)*1440:(i+480/2+1)*1440]
         os.write(self.d, out)
 
+    def display_frame(self):
+        # deinterlace
+        out = ''
+
+        start = time()
+        for i in xrange(480/2):
+            out += self.s_packets[i*1440:(i+1)*1440]
+            out += self.s_packets[(i+480/2)*1440:(i+480/2+1)*1440]
+        
+        r = np.fromstring(out, dtype='uint8')
+        yuyv = r.reshape((len(r) / 4, 4))
+        together = np.vstack((yuyv[:,0], yuyv[:,1], yuyv[:,3], yuyv[:,2], yuyv[:,1], yuyv[:,3]))        
+        size = (720, 480)
+        im = Image.frombuffer("YCbCr", size, together.T.flatten()).transpose(Image.FLIP_TOP_BOTTOM).convert('RGB')
+        surface = pygame.image.fromstring(im.tostring(), size, "RGB")
+        # pygame_surface = pygame.image.frombuffer(data_string, size, 'RGBA')
+        screen.blit(surface, (0,0)) 
+        
+        font = pygame.font.Font(None, 36)
+        text = font.render("FPS: %1.1f" % clock.get_fps(), 1, (90, 10, 10))
+        screen.blit(text, (10, 10))
+        # print "fps", clock.get_fps()
+
+        pygame.display.flip()
+        clock.tick()
+
+        print time() - start
+        # im.show()
+        # exit()
+
+        # together.T.flatten()
+        # image3.append((0, 0, 0, ba.array('B', together.T.flatten()).tostring()))
+        
 
 def even(num):
     div=num/2
@@ -440,8 +500,11 @@ def mirror(data):
 import array as ba
 import numpy as np
 
+
+
 def unpack_images(raw_packets):
-    
+    realstart = time()
+
     # Getting smaller internal packets
     print "Raw packet", len("".join(raw_packets))
     small_packets=[]
@@ -570,59 +633,60 @@ def unpack_images(raw_packets):
             images2a.append(image2a)
 
     #raw_input()
-    print "printing images"
-    # printing images
-    for img in images2a:
-        for n, row in enumerate(img):
-            #print n, row[:3], [hex(ord(i)) for i in row[3]], len(row[3])
-            pass
+    # print "printing images"
+    # # printing images
+    # for img in images2a:
+    #     for n, row in enumerate(img):
+    #         #print n, row[:3], [hex(ord(i)) for i in row[3]], len(row[3])
+    #         pass
 
-    for row in images2a[0][len(img[0])/5:(len(img[0])/5)+10]:
-        #print "Row", row[:3], [hex(ord(i)) for i in row[3]], len(row[3])
-        pass
+    # for row in images2a[0][len(img[0])/5:(len(img[0])/5)+10]:
+    #     #print "Row", row[:3], [hex(ord(i)) for i in row[3]], len(row[3])
+    #     pass
 
     print "yuv conversion or lack thereof"
     #YUV!
     images3=[]
     image3=[]
-    import time
     blerg = 0
 
-    start = time.clock()
-    for img in images2a:
-        image3 = []
-        for n_row, row in enumerate(img):
-            r = np.fromstring(row[3], dtype='uint8') # slower than array
-            yuyv = r.reshape((len(r) / 4, 4))
-            together = np.vstack((yuyv[:,0], yuyv[:,1], yuyv[:,3], yuyv[:,2], yuyv[:,1], yuyv[:,3]))
-            image3.append((0, 0, 0, ba.array('B', together.T.flatten()).tostring()))
-        images3.append(image3)
-    print "total conversion", time.clock() - start # 1.073279
-    
+    start = time()
 
-
-    # start = time.clock()
     # for img in images2a:
     #     image3 = []
     #     for n_row, row in enumerate(img):
-    #         r = ba.array('B')
-    #         r.fromstring(row[3])
-    #         new_row = []
-
-    #         # 4:2:2 chroma subsampling
-    #         for i in xrange(len(row[3])/4):
-    #             y1 = r[i * 4]
-    #             u = r[i * 4 + 1]
-    #             y2 = r[i * 4 + 2]
-    #             v = r[i * 4 + 3]
-
-    #             new_row += [y1, u, v, y2, u, v]
-    #             blerg += 1
-
-    #         image3.append((0, 0, 0, ba.array('B', new_row).tostring()))
-
+    #         r = np.fromstring(row[3], dtype='uint8') # slower than array
+    #         yuyv = r.reshape((len(r) / 4, 4))
+    #         together = np.vstack((yuyv[:,0], yuyv[:,1], yuyv[:,3], yuyv[:,2], yuyv[:,1], yuyv[:,3]))
+    #         image3.append((0, 0, 0, ba.array('B', together.T.flatten()).tostring()))
     #     images3.append(image3)
-    # print "total conversion", time.clock() - start # 0.816999
+    # print "total conversion", time() - start # 1.073279
+    
+
+
+    for img in images2a:
+        image3 = []
+        for n_row, row in enumerate(img):
+            r = ba.array('B')
+            r.fromstring(row[3])
+            new_row = []
+
+            # 4:2:2 chroma subsampling
+            for i in xrange(len(row[3])/4):
+                y1 = r[i * 4]
+                u = r[i * 4 + 1]
+                y2 = r[i * 4 + 2]
+                v = r[i * 4 + 3]
+
+                new_row += [y1, u, v, y2, u, v]
+                blerg += 1
+
+            image3.append((0, 0, 0, ba.array('B', new_row).tostring()))
+
+        images3.append(image3)
+    print "total conversion", time() - start # 0.816999
+
+    print "everything mcgoats", time() - realstart
 
     # for img in images2a:
     #     image3 = []
@@ -760,15 +824,25 @@ from time import time, sleep
 from PIL import Image
 import struct
 
-def main():
+def mainold():
     utv=Utv007()
+
+    # for i in xrange(200):
+    #     #raw_input()
+    #     print "iso", i
+    #     utv.do_iso()
+
+    # for i in xrange(200):
+    #     utv.do_iso()
+    # for i in xrange(200):
+    #     print "Event", i
+    #     utv.handle_ev()
     for i in xrange(200):
-        #raw_input()
-        print "iso", i
         utv.do_iso()
+
     for i in xrange(200):
-        print "Event", i
         utv.handle_ev()
+
     print " len image", len(utv.image)
     #image=struct.unpack('H'*(len(utv.image)/2), utv.image)
     print "Image raw", len(utv.image), len(''.join(utv.image))
@@ -792,6 +866,38 @@ def main():
     
     #base.show()
     exit()
+
+quit_now=False
+
+def signal_handler(signal, frame):
+    print 'You pressed Ctrl+C!'
+    global quit_now
+    quit_now=True
+
+screen = None
+clock = pygame.time.Clock()
+
+import signal
+def main():
+    signal.signal(signal.SIGINT, signal_handler)
+
+    pygame.init()
+    size = (700, 500)
+    global screen
+
+    screen = pygame.display.set_mode(size)
+    pygame.display.set_caption("My Game")
+    
+    with Utv007() as utv:
+        for i in xrange(20):
+            utv.do_iso2()
+        
+        while not quit_now:
+            utv.handle_ev()
+        
+        print "closing utv"
+        utv.stop=True
+
 
 
 
