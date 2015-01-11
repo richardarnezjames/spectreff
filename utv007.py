@@ -149,9 +149,12 @@ from PIL import Image
 import threading
 import signal
 from time import strftime
+import cv2
 
 quit_now = False
 screen   = None
+record   = None
+
 renclock = pygame.time.Clock()
 camclock = pygame.time.Clock()
 
@@ -172,6 +175,9 @@ def display_frame(im):
     font = pygame.font.Font(None, 36)
     text = font.render("FPS: %1.1f" % (camclock.get_fps()), 1, (190, 10, 10))
     screen.blit(text, (10, 10))
+    if record is not None:
+        text = font.render("Recording", 1, (190, 10, 10))
+        screen.blit(text, (590, 450))
     # print "fps", renclock.get_fps()
     pygame.display.flip()
     renclock.tick()
@@ -201,11 +207,14 @@ def signal_handler(signal, frame):
 def main():
     signal.signal(signal.SIGINT, signal_handler)
     pygame.init()
-    global screen, quit_now
+    global screen, quit_now, record
     size = (720, 480)
     screen = pygame.display.set_mode(size)
     pygame.display.set_caption("Fushicai EasyCAP utv007")
-
+    fourcc = cv2.cv.CV_FOURCC('X','2','6','4')
+    filename = strftime("Recording %Y-%m-%d %H.%M.%S.mp4")
+    record = cv2.VideoWriter(filename, fourcc, 20.0, (720, 480))
+    
     with Utv007() as utv:
         lt = ListenThread(utv)
         lt.start()
@@ -213,11 +222,27 @@ def main():
         while not quit_now:
             im = convert_pil(utv.framebuffer)
             display_frame(im)
+
+            imcv = cv2.cvtColor(np.asarray(im), cv2.COLOR_RGB2BGR)
+            cv2.imshow('frame', imcv)
+            record.write(imcv)
+            record.release()
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     quit_now = True
-                elif event.type == pygame.MOUSEBUTTONUP:
-                    im.save(strftime("Snapshot %Y-%m-%d %H.%M.%S.jpg"))
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_r:
+                        if record is None:
+                            pass
+                        else:
+                            record.release()
+                            record = None
+                    elif event.key == pygame.K_SPACE:
+                        screen.fill((255, 255, 255)) # flash the screen because its a snapshot
+                        pygame.display.flip()
+                        filename = strftime("Snapshot %Y-%m-%d %H.%M.%S.jpg")
+                        im.save(filename)
+                        print "Saving snapshot as %s" % filename
 
         utv.stop = True
         lt.stop()
