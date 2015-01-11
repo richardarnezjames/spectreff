@@ -18,110 +18,17 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-
-import usb1 as u
+import usb1 as usb
 from protocol import p_init, p5
 from protocol import *
 from time import sleep
 import pygame
 
-def variable_for_value(value):
-    for n,v in globals().items():
-        if v == value:
-            return n
-    return None
-
-def run_protocol(prot, devh):
-    print "TESTST"
-    for req_num, req in enumerate(prot):
-        print "line", req[0], hex(req[1]), hex(req[2]), hex(req[3]), req[4], req[5],
-        if len(req)>6:
-            if type(req[6])==list:
-                for i,j in req[6]:
-                    print hex(i), variable_for_value(j),
-            elif type(req[6])==tuple:
-                print [hex(i) for i in req[6]],
-            else:
-                print hex(req[6]),
-        # print "req num", req_num
-        if req[0][0]=='c':
-            if req[0][2:]=='vd':
-                # print "Control request"
-                if req[0][1]=='r':
-                    # print "Read"
-                    reply=devh.controlRead(
-                        u.libusb1.LIBUSB_TYPE_VENDOR|u.libusb1.LIBUSB_RECIPIENT_DEVICE,
-                        req[1], req[2], req[3], req[5])
-                    # if len(reply)==1:
-                    #     print "Reply:", hex(ord(reply))
-                    # else:
-                    #     print "Reply:", [hex(ord(i)) for i in reply]
-                    #     print "Reply char:", reply
-                    if type(req[6])==list:
-                        # print " Multiply options"
-                        found_prot=False
-                        for resp, next_prot in req[6]:
-                            if resp==ord(reply):
-                                print "Found response in multiple options, running recursively"
-                                print "Jumping to:" , variable_for_value(next_prot)
-                                run_protocol(next_prot, devh)
-                                found_prot=True
-                                break
-                        if not found_prot:
-                            print "Unknown response!! Exiting!"
-                            exit()
-                    elif type(req[6])==tuple:
-                        # print "Long answer"
-                        #raw_input()
-                        if len(req)==7:
-                            if list(req[6])==[ord(i) for i in reply]:
-                                # print " All fine"
-                                pass
-                            else:
-                                print "Response incorrect!!! Exiting"
-                                exit()
-                        elif len(req)==8:
-                            # print "Some reply may be ignored"
-                            for reply, exp_reply, check in zip([ord(i) for i in reply], req[6], req[7]):
-                                # print "Reply", reply, exp_reply, check
-                                if check:
-                                    if reply==exp_reply:
-                                        # print "All fine"
-                                        pass
-                                    else:
-                                        print "Problems with reply!", reply, exp_reply, check
-                                        exit()
-                                # else:
-                                #     print "Ignored reply"
-                            #raw_input()
-                    else:
-                        if ord(reply)==req[6]:
-                            # print "All fine!"
-                            pass
-                        else:
-                            print "Error: Different reply"
-                            exit()
-                elif req[0][1]=='w':
-                    # print "Write"
-                    reply=devh.controlWrite(
-                        u.libusb1.LIBUSB_TYPE_VENDOR|u.libusb1.LIBUSB_RECIPIENT_DEVICE,
-                        req[1], req[2], req[3], req[4])
-                    print "Reply:", reply
-                    if reply==req[5]:
-                        # print "All fine!"
-                        pass
-                    else:
-                        print "Error: More data send!"
-                        exit()
-                else:
-                    print "Not supported"
-
-
 class Utv007(object):
     interface = 0
 
-    def __init__(self, device="/dev/video1"):
-        self.cont = u.USBContext()
+    def __init__(self, device = "/dev/video1"):
+        self.cont = usb.USBContext()
         
         easycap_dev_id = '0x1b71:0x3002'
         for i in self.cont.getDeviceList():
@@ -130,7 +37,6 @@ class Utv007(object):
                 print "Easycap utv007 found! Dev ID: ", easycap_dev_id
                 self.dev = i
                 break
-
         if self.dev:
             print "Opening device"
             self.devh = self.dev.open()
@@ -161,7 +67,6 @@ class Utv007(object):
         self.stop                = False
         self.iso                 = []
         self.framebuffer         = bytearray(720 * 480 * 2) # 2 bytes per pixel
-        
 
     def __enter__(self):
         print "Enter"
@@ -181,9 +86,6 @@ class Utv007(object):
         self.cont.exit()
         pass
 
-    def __del__(self):
-        print "Deleting"
-
     def do_iso2(self):
         iso = self.devh.getTransfer(iso_packets=8)
         iso.setIsochronous(0x81, buffer_or_len=0x6000, callback=self.callback2, timeout=1000)
@@ -193,7 +95,6 @@ class Utv007(object):
 
     def handle_ev(self):
         self.cont.handleEvents()
-
 
     """ 
         buffer_list is a list that contains around 8 packets inside, each of this packets contains 3 smaller packets inside
@@ -243,19 +144,29 @@ class Utv007(object):
         if not self.stop:
             transfer.submit()
 
+import numpy as np
+from PIL import Image
+import threading
+import signal
+from time import strftime
 
-def display_frame(framebuffer):
+quit_now = False
+screen   = None
+renclock = pygame.time.Clock()
+camclock = pygame.time.Clock()
 
+def convert_pil(framebuffer):
     yuyv = np.reshape(framebuffer, (480 * 720 * 2 / 4, 4))
     together = np.vstack((yuyv[:,0], yuyv[:,1], yuyv[:,3], yuyv[:,2], yuyv[:,1], yuyv[:,3])).T.reshape((480, 720 * 3))
     # deinterlace
     deinterlaced = np.zeros((480, 720 * 3), dtype='uint8')
     deinterlaced[1::2 ,:] = together[:240,:]
     deinterlaced[::2,:] = together[240:,:] 
-    size = (720, 480)
-    im = Image.frombuffer("YCbCr", size, deinterlaced.flatten(), 'raw', 'YCbCr', 0, 1).convert('RGB')
+    im = Image.frombuffer("YCbCr", (720, 480), deinterlaced.flatten(), 'raw', 'YCbCr', 0, 1).convert('RGB')
+    return im
 
-    surface = pygame.image.fromstring(im.tostring(), size, "RGB")
+def display_frame(im):
+    surface = pygame.image.fromstring(im.tostring(), (720, 480), "RGB")
     screen.blit(surface, (0,0)) 
     
     font = pygame.font.Font(None, 36)
@@ -265,15 +176,6 @@ def display_frame(framebuffer):
     pygame.display.flip()
     renclock.tick()
 
-import numpy as np
-from PIL import Image
-import threading
-import signal
-
-quit_now = False
-screen   = None
-renclock = pygame.time.Clock()
-camclock = pygame.time.Clock()
 
 # https://www.mail-archive.com/fx2lib-devel@lists.sourceforge.net/msg00048.html
 # http://stackoverflow.com/questions/323972/is-there-any-way-to-kill-a-thread-in-python
@@ -299,11 +201,8 @@ def signal_handler(signal, frame):
 def main():
     signal.signal(signal.SIGINT, signal_handler)
     pygame.init()
-    global screen
-    global quit_now
-
+    global screen, quit_now
     size = (720, 480)
-
     screen = pygame.display.set_mode(size)
     pygame.display.set_caption("Fushicai EasyCAP utv007")
 
@@ -312,21 +211,17 @@ def main():
         lt.start()
 
         while not quit_now:
-            display_frame(utv.framebuffer)
+            im = convert_pil(utv.framebuffer)
+            display_frame(im)
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     quit_now = True
-                pass
+                elif event.type == pygame.MOUSEBUTTONUP:
+                    im.save(strftime("Snapshot %Y-%m-%d %H.%M.%S.jpg"))
 
         utv.stop = True
-
         lt.stop()
         exit()
-        
-
-
-
-
 
 if __name__=="__main__":
     main()

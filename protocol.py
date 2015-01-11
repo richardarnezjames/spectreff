@@ -320,3 +320,98 @@ p5=[
 ['crvd', 0x0b, 0x0000, 0xc0ae, '', 1, 0x10],
 ['crvd', 0x0b, 0x0000, 0xc284, '', 1, [(0x88, p6a), (0xaa, p6b)]]
 ]
+
+import usb1 as usb
+
+def variable_for_value(value):
+    for n,v in globals().items():
+        if v == value:
+            return n
+    return None
+
+def run_protocol(prot, devh):
+    print "TESTST"
+    for req_num, req in enumerate(prot):
+        print "line", req[0], hex(req[1]), hex(req[2]), hex(req[3]), req[4], req[5],
+        if len(req)>6:
+            if type(req[6])==list:
+                for i,j in req[6]:
+                    print hex(i), variable_for_value(j),
+            elif type(req[6])==tuple:
+                print [hex(i) for i in req[6]],
+            else:
+                print hex(req[6]),
+        # print "req num", req_num
+        if req[0][0]=='c':
+            if req[0][2:]=='vd':
+                # print "Control request"
+                if req[0][1]=='r':
+                    # print "Read"
+                    reply=devh.controlRead(
+                        usb.libusb1.LIBUSB_TYPE_VENDOR|usb.libusb1.LIBUSB_RECIPIENT_DEVICE,
+                        req[1], req[2], req[3], req[5])
+                    # if len(reply)==1:
+                    #     print "Reply:", hex(ord(reply))
+                    # else:
+                    #     print "Reply:", [hex(ord(i)) for i in reply]
+                    #     print "Reply char:", reply
+                    if type(req[6])==list:
+                        # print " Multiply options"
+                        found_prot=False
+                        for resp, next_prot in req[6]:
+                            if resp==ord(reply):
+                                print "Found response in multiple options, running recursively"
+                                print "Jumping to:" , variable_for_value(next_prot)
+                                run_protocol(next_prot, devh)
+                                found_prot=True
+                                break
+                        if not found_prot:
+                            print "Unknown response!! Exiting!"
+                            exit()
+                    elif type(req[6])==tuple:
+                        # print "Long answer"
+                        #raw_input()
+                        if len(req)==7:
+                            if list(req[6])==[ord(i) for i in reply]:
+                                # print " All fine"
+                                pass
+                            else:
+                                print "Response incorrect!!! Exiting"
+                                exit()
+                        elif len(req)==8:
+                            # print "Some reply may be ignored"
+                            for reply, exp_reply, check in zip([ord(i) for i in reply], req[6], req[7]):
+                                # print "Reply", reply, exp_reply, check
+                                if check:
+                                    if reply==exp_reply:
+                                        # print "All fine"
+                                        pass
+                                    else:
+                                        print "Problems with reply!", reply, exp_reply, check
+                                        exit()
+                                # else:
+                                #     print "Ignored reply"
+                            #raw_input()
+                    else:
+                        if ord(reply)==req[6]:
+                            # print "All fine!"
+                            pass
+                        else:
+                            print "Error: Different reply"
+                            exit()
+                elif req[0][1]=='w':
+                    # print "Write"
+                    reply=devh.controlWrite(
+                        usb.libusb1.LIBUSB_TYPE_VENDOR|usb.libusb1.LIBUSB_RECIPIENT_DEVICE,
+                        req[1], req[2], req[3], req[4])
+                    print "Reply:", reply
+                    if reply==req[5]:
+                        # print "All fine!"
+                        pass
+                    else:
+                        print "Error: More data send!"
+                        exit()
+                else:
+                    print "Not supported"
+
+
