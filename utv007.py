@@ -149,7 +149,10 @@ from PIL import Image
 import threading
 import signal
 from time import strftime
-import cv2
+try:
+    import cv2
+except:
+    print "OpenCV 2 Not Available. Video can not be recorded."
 
 quit_now = False
 screen   = None
@@ -211,10 +214,7 @@ def main():
     size = (720, 480)
     screen = pygame.display.set_mode(size)
     pygame.display.set_caption("Fushicai EasyCAP utv007")
-    fourcc = cv2.cv.CV_FOURCC('X','2','6','4')
-    filename = strftime("Recording %Y-%m-%d %H.%M.%S.mp4")
-    record = cv2.VideoWriter(filename, fourcc, 20.0, (720, 480))
-    
+
     with Utv007() as utv:
         lt = ListenThread(utv)
         lt.start()
@@ -223,18 +223,24 @@ def main():
             im = convert_pil(utv.framebuffer)
             display_frame(im)
 
-            imcv = cv2.cvtColor(np.asarray(im), cv2.COLOR_RGB2BGR)
-            cv2.imshow('frame', imcv)
-            record.write(imcv)
-            record.release()
+            if record is not None and record.isOpened():
+                # maybe we should use opencv/highgui instead of pygame
+                imcv = cv2.cvtColor(np.asarray(im), cv2.COLOR_RGB2BGR)
+                # cv2.imshow('frame', imcv)
+                record.write(imcv)
+            
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     quit_now = True
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_r:
                         if record is None:
-                            pass
+                            # http://stackoverflow.com/questions/10605163/opencv-videowriter-under-osx-producing-no-output
+                            fourcc = cv2.cv.CV_FOURCC('m','p','4','v')
+                            filename = strftime("Recording %Y-%m-%d %H.%M.%S.mov")
+                            record = cv2.VideoWriter(filename, fourcc, 20.0, (720, 480))
                         else:
+                            print "finishing up the recording"
                             record.release()
                             record = None
                     elif event.key == pygame.K_SPACE:
@@ -246,7 +252,9 @@ def main():
 
         utv.stop = True
         lt.stop()
-        exit()
+        if record is not None:
+            record.release()
+        # exit()
 
 if __name__=="__main__":
     main()
