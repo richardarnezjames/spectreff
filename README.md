@@ -1,6 +1,4 @@
 usbtv007
 ========
 
-this is basically https://github.com/memeruiz/usbtv007 but it works with Mac OS X and my device
-
-Also capitalized on the glorious james bond pun opportunities
+modernized version of https://github.com/antimatter15/spectre to autocapture video on cheap usb capture card
